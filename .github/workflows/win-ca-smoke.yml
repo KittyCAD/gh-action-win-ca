@@ -1,0 +1,299 @@
+name: win-ca-smoke
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Version of Node.js to install.
+        required: false
+        default: '22'
+        type: string
+      pre-test-command:
+        description: Command that should fail before trusting the local root CA.
+        required: true
+        type: string
+      post-test-command:
+        description: Command that should succeed after trusting the local root CA.
+        required: true
+        type: string
+      working-directory:
+        description: Directory (relative to repository root) that contains win-ca scripts and tests.
+        required: false
+        default: '.'
+        type: string
+      setup-rust:
+        description: Install Rust toolchain and enable cargo caching.
+        required: false
+        default: false
+        type: boolean
+      setup-python:
+        description: Install Python runtime.
+        required: false
+        default: false
+        type: boolean
+      python-version:
+        description: Python version to install when setup-python is true.
+        required: false
+        default: '3.13'
+        type: string
+      python-version-file:
+        description: Optional path to a python-version file relative to the working directory.
+        required: false
+        default: ''
+        type: string
+      uv-version:
+        description: uv version to install when setup-python is true.
+        required: false
+        default: 'latest'
+        type: string
+      uv-enable-cache:
+        description: Enable caching for uv.
+        required: false
+        default: true
+        type: boolean
+      uv-cache-dependency-glob:
+        description: Dependency glob passed to setup-uv for caching.
+        required: false
+        default: 'uv.lock'
+        type: string
+      install-command:
+        description: Optional command to install project dependencies (e.g. `uv sync --extra dev`).
+        required: false
+        default: ''
+        type: string
+      ca-script-path:
+        description: Path to the PowerShell script that creates the local root CA.
+        required: false
+        default: './scripts/win/create-local-ca.ps1'
+        type: string
+      pfx-path:
+        description: Path (relative to the working directory) where the generated PFX should be written.
+        required: false
+        default: 'servercert.pfx'
+        type: string
+      pfx-password:
+        description: Password used to protect the generated server certificate.
+        required: false
+        default: 'pass'
+        type: string
+      server-script:
+        description: Path to the HTTPS server script.
+        required: false
+        default: './scripts/https-server.mjs'
+        type: string
+      server-port:
+        description: Port used by the HTTPS server.
+        required: false
+        default: '4443'
+        type: string
+      ready-timeout-seconds:
+        description: Seconds to wait for the HTTPS server to become ready.
+        required: false
+        default: '30'
+        type: string
+      node-extra-ca-certs:
+        description: Full Windows path to the generated root certificate.
+        required: false
+        default: ''
+        type: string
+      win-ca-flag:
+        description: Value assigned to WIN_CA_SMOKE.
+        required: false
+        default: '1'
+        type: string
+      expected-pre-failure-message:
+        description: Message emitted when the pre-test command unexpectedly succeeds.
+        required: false
+        default: 'Expected win-ca smoke command to fail before trusting root CA.'
+        type: string
+      pre-step-extra-env:
+        description: JSON object of additional environment variables for the pre-test step.
+        required: false
+        default: '{"WIN_CA_EXPECT_SUCCESS":"0"}'
+        type: string
+      post-step-extra-env:
+        description: JSON object of additional environment variables for the post-test step.
+        required: false
+        default: '{"WIN_CA_EXPECT_SUCCESS":"1"}'
+        type: string
+      pre-step-name:
+        description: Display name for the pre-trust smoke step.
+        required: false
+        default: 'HTTPS smoke fails before trust'
+        type: string
+      post-step-name:
+        description: Display name for the post-trust smoke step.
+        required: false
+        default: 'HTTPS smoke succeeds after trust'
+        type: string
+
+jobs:
+  smoke:
+    name: Windows CA smoke
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      WIN_CA_SMOKE: ${{ inputs.win-ca-flag }}
+      NODE_EXTRA_CA_CERTS: ${{ inputs.node-extra-ca-certs != '' && inputs.node-extra-ca-certs || format('{0}\\root.pem', github.workspace) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Setup Rust toolchain
+        if: ${{ inputs.setup-rust }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        if: ${{ inputs.setup-rust }}
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install uv
+        if: ${{ inputs.setup-python }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ inputs.uv-version }}
+          enable-cache: ${{ inputs.uv-enable-cache }}
+          cache-dependency-glob: ${{ inputs.uv-cache-dependency-glob }}
+
+      - name: Setup Python from version file
+        if: ${{ inputs.setup-python && inputs.python-version-file != '' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ${{ inputs.python-version-file }}
+
+      - name: Setup Python
+        if: ${{ inputs.setup-python && inputs.python-version-file == '' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install dependencies
+        if: ${{ inputs.install-command != '' }}
+        run: ${{ inputs.install-command }}
+
+      - name: Create local root CA and server cert (untrusted)
+        run: |
+          & "${{ inputs.ca-script-path }}" -PfxPath "${{ inputs.pfx-path }}" -PfxPassword '${{ inputs.pfx-password }}' -NoTrust
+
+      - name: ${{ inputs.pre-step-name }}
+        id: pre_smoke
+        continue-on-error: true
+        env:
+          SERVER_SCRIPT: ${{ inputs.server-script }}
+          SERVER_PORT: ${{ inputs.server-port }}
+          READY_TIMEOUT_SECONDS: ${{ inputs.ready-timeout-seconds }}
+          PRE_TEST_COMMAND: ${{ inputs.pre-test-command }}
+          EXPECT_PRE_FAILURE_MESSAGE: ${{ inputs.expected-pre-failure-message }}
+          EXTRA_ENV_JSON: ${{ inputs.pre-step-extra-env }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $job = Start-Job -ScriptBlock {
+            param($scriptPath, $workingDir)
+            Set-Location $workingDir
+            node $scriptPath
+          } -ArgumentList $Env:SERVER_SCRIPT, (Get-Location).Path
+          $exitCode = 1
+          try {
+            $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
+            do {
+              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port [int]$Env:SERVER_PORT -WarningAction SilentlyContinue -InformationLevel Quiet
+              if (-not $ready) { Start-Sleep -Milliseconds 200 }
+            } while (-not $ready -and (Get-Date) -lt $deadline)
+            if (-not $ready) { throw 'HTTPS server did not become ready in time' }
+            $extraJson = $Env:EXTRA_ENV_JSON
+            if (![string]::IsNullOrWhiteSpace($extraJson) -and $extraJson.Trim() -ne '{}') {
+              $parsed = ConvertFrom-Json -InputObject $extraJson
+              if ($parsed -is [System.Collections.IDictionary]) {
+                foreach ($key in $parsed.Keys) {
+                  [System.Environment]::SetEnvironmentVariable([string]$key, [string]$parsed[$key])
+                }
+              } elseif ($parsed -ne $null) {
+                foreach ($prop in $parsed.PSObject.Properties) {
+                  [System.Environment]::SetEnvironmentVariable($prop.Name, [string]$prop.Value)
+                }
+              }
+            }
+            Invoke-Expression $Env:PRE_TEST_COMMAND
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) {
+              throw $Env:EXPECT_PRE_FAILURE_MESSAGE
+            }
+          } finally {
+            Try { Stop-Job -Job $job -PassThru | Remove-Job } Catch {}
+          }
+          exit $exitCode
+
+      - name: Assert failure without trusted root
+        if: ${{ steps.pre_smoke.outcome != 'failure' }}
+        run: |
+          Write-Host 'Expected pre-trust smoke test to fail.'
+          exit 1
+
+      - name: Create and trust local root CA and server cert
+        run: |
+          & "${{ inputs.ca-script-path }}" -PfxPath "${{ inputs.pfx-path }}" -PfxPassword '${{ inputs.pfx-password }}'
+
+      - name: ${{ inputs.post-step-name }}
+        env:
+          SERVER_SCRIPT: ${{ inputs.server-script }}
+          SERVER_PORT: ${{ inputs.server-port }}
+          READY_TIMEOUT_SECONDS: ${{ inputs.ready-timeout-seconds }}
+          POST_TEST_COMMAND: ${{ inputs.post-test-command }}
+          EXTRA_ENV_JSON: ${{ inputs.post-step-extra-env }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $job = Start-Job -ScriptBlock {
+            param($scriptPath, $workingDir)
+            Set-Location $workingDir
+            node $scriptPath
+          } -ArgumentList $Env:SERVER_SCRIPT, (Get-Location).Path
+          try {
+            $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
+            do {
+              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port [int]$Env:SERVER_PORT -WarningAction SilentlyContinue -InformationLevel Quiet
+              if (-not $ready) { Start-Sleep -Milliseconds 200 }
+            } while (-not $ready -and (Get-Date) -lt $deadline)
+            if (-not $ready) { throw 'HTTPS server did not become ready in time' }
+            $extraJson = $Env:EXTRA_ENV_JSON
+            if (![string]::IsNullOrWhiteSpace($extraJson) -and $extraJson.Trim() -ne '{}') {
+              $parsed = ConvertFrom-Json -InputObject $extraJson
+              if ($parsed -is [System.Collections.IDictionary]) {
+                foreach ($key in $parsed.Keys) {
+                  [System.Environment]::SetEnvironmentVariable([string]$key, [string]$parsed[$key])
+                }
+              } elseif ($parsed -ne $null) {
+                foreach ($prop in $parsed.PSObject.Properties) {
+                  [System.Environment]::SetEnvironmentVariable($prop.Name, [string]$prop.Value)
+                }
+              }
+            }
+            Invoke-Expression $Env:POST_TEST_COMMAND
+            if ($LASTEXITCODE -ne 0) {
+              throw "Post-trust smoke command failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Try { Stop-Job -Job $job -PassThru | Remove-Job } Catch {}
+          }
+
+      - name: Cleanup local certs
+        if: always()
+        run: |
+          try {
+            Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object { $_.Subject -eq 'CN=KittyCAD-Test-Root' } | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -Path Cert:\CurrentUser\My | Where-Object { $_.Subject -match 'CN=KittyCAD-Test-Root|CN=localhost' } | Remove-Item -Force -ErrorAction SilentlyContinue
+          } catch {}
+          try {
+            Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object { $_.Subject -eq 'CN=KittyCAD-Test-Root' } | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -Path Cert:\LocalMachine\My | Where-Object { $_.Subject -match 'CN=KittyCAD-Test-Root|CN=localhost' } | Remove-Item -Force -ErrorAction SilentlyContinue
+          } catch {}
+          Remove-Item -Path '${{ inputs.pfx-path }}',root.pem,root.cer -Force -ErrorAction SilentlyContinue
