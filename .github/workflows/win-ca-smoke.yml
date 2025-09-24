@@ -230,7 +230,11 @@ jobs:
 
       - name: Create local root CA and server cert (untrusted)
         run: |
-          & "${{ inputs.ca-script-path }}" -PfxPath "${{ inputs.pfx-path }}" -PfxPassword '${{ inputs.pfx-password }}' -NoTrust
+          $ErrorActionPreference = 'Stop'
+          $caScript = Resolve-Path -LiteralPath "${{ inputs.ca-script-path }}" -ErrorAction SilentlyContinue
+          if (-not $caScript) { throw "CA helper script not found at '${{ inputs.ca-script-path }}'" }
+          $pfxPath = [System.IO.Path]::GetFullPath("${{ inputs.pfx-path }}")
+          & $caScript.ProviderPath -PfxPath $pfxPath -PfxPassword '${{ inputs.pfx-password }}' -NoTrust
 
       - name: ${{ inputs.pre-step-name }}
         id: pre_smoke
@@ -244,11 +248,13 @@ jobs:
           EXTRA_ENV_JSON: ${{ inputs.pre-step-extra-env }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $serverScriptPath = Resolve-Path -LiteralPath $Env:SERVER_SCRIPT -ErrorAction SilentlyContinue
+          if (-not $serverScriptPath) { throw "HTTPS helper script not found at $Env:SERVER_SCRIPT" }
           $job = Start-Job -ScriptBlock {
             param($scriptPath, $workingDir)
             Set-Location $workingDir
             node $scriptPath
-          } -ArgumentList $Env:SERVER_SCRIPT, (Get-Location).Path
+          } -ArgumentList $serverScriptPath.ProviderPath, (Get-Location).Path
           $exitCode = 1
           try {
             $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
@@ -288,7 +294,11 @@ jobs:
 
       - name: Create and trust local root CA and server cert
         run: |
-          & "${{ inputs.ca-script-path }}" -PfxPath "${{ inputs.pfx-path }}" -PfxPassword '${{ inputs.pfx-password }}'
+          $ErrorActionPreference = 'Stop'
+          $caScript = Resolve-Path -LiteralPath "${{ inputs.ca-script-path }}" -ErrorAction SilentlyContinue
+          if (-not $caScript) { throw "CA helper script not found at '${{ inputs.ca-script-path }}'" }
+          $pfxPath = [System.IO.Path]::GetFullPath("${{ inputs.pfx-path }}")
+          & $caScript.ProviderPath -PfxPath $pfxPath -PfxPassword '${{ inputs.pfx-password }}'
 
       - name: ${{ inputs.post-step-name }}
         env:
@@ -299,11 +309,13 @@ jobs:
           EXTRA_ENV_JSON: ${{ inputs.post-step-extra-env }}
         run: |
           $ErrorActionPreference = 'Stop'
+          $serverScriptPath = Resolve-Path -LiteralPath $Env:SERVER_SCRIPT -ErrorAction SilentlyContinue
+          if (-not $serverScriptPath) { throw "HTTPS helper script not found at $Env:SERVER_SCRIPT" }
           $job = Start-Job -ScriptBlock {
             param($scriptPath, $workingDir)
             Set-Location $workingDir
             node $scriptPath
-          } -ArgumentList $Env:SERVER_SCRIPT, (Get-Location).Path
+          } -ArgumentList $serverScriptPath.ProviderPath, (Get-Location).Path
           try {
             $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
             do {

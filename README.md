@@ -80,8 +80,8 @@ jobs:
         npm run build
       pre-test-command: node scripts/win-ca-smoke.mjs
       post-test-command: node scripts/win-ca-smoke.mjs
-    env:
-      SMOKE_URL: 'https://127.0.0.1:4443/'
+      pre-step-extra-env: '{"SMOKE_URL":"https://127.0.0.1:4443/"}'
+      post-step-extra-env: '{"SMOKE_URL":"https://127.0.0.1:4443/"}'
 ```
 
 ## Inputs reference
