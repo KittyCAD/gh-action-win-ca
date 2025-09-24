@@ -36,16 +36,18 @@ try {
   $handler.Dispose()
 }
 
-if ($expectSuccess) {
-  if (-not $succeeded) {
-    Write-Error "Expected $Url to succeed after trusting the test root"
-    exit 1
-  }
-} else {
-  if ($succeeded) {
+if ($succeeded) {
+  if (-not $expectSuccess) {
     Write-Error "Expected $Url to fail before trusting the test root"
     exit 1
   }
+  Write-Host "win-ca smoke expectation met (expectSuccess=$expectSuccess, succeeded=$succeeded)"
+  exit 0
+} else {
+  if ($expectSuccess) {
+    Write-Error "Expected $Url to succeed after trusting the test root"
+    exit 1
+  }
+  Write-Host "win-ca smoke expectation met (expectSuccess=$expectSuccess, succeeded=$succeeded)"
+  exit 1
 }
-
-Write-Host "win-ca smoke expectation met (expectSuccess=$expectSuccess, succeeded=$succeeded)"

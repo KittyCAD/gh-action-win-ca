@@ -1,6 +1,6 @@
 # Windows CA smoke reusable workflow
 
-This repo hosts a reusable GitHub Actions workflow that provisions a temporary Windows root certificate, exercises your HTTPS client both before and after trusting that root, and cleans up any state that was created. The workflow mirrors the scripts we already ship (PowerShell CA helper + Node HTTPS server) so repos only need to wire in their language-specific test commands.
+This repo hosts a reusable GitHub Actions workflow that provisions a temporary Windows root certificate, exercises your HTTPS client both before and after trusting that root, and cleans up any state that was created. The workflow mirrors the scripts we already ship (PowerShell CA helper + Node HTTPS server) so repos only need to wire in their language-specific smoke tests.
 
 ## How to call the workflow
 
@@ -63,27 +63,56 @@ jobs:
       post-test-command: uv run pytest tests/test_win_ca_smoke.py --maxfail=1 --disable-warnings -q
 ```
 
+### TypeScript SDK (`kittycad.ts`)
+
+```yaml
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    uses: kittycad/gh-action-win-ca/.github/workflows/win-ca-smoke.yml@main
+    with:
+      node-version: ${{ matrix.node }}
+      install-command: |
+        npm install --frozen-lockfile
+        npm run build
+      pre-test-command: node scripts/win-ca-smoke.mjs
+      post-test-command: node scripts/win-ca-smoke.mjs
+    env:
+      SMOKE_URL: 'https://127.0.0.1:4443/'
+```
+
 ## Inputs reference
 
 | input | default | notes |
 | --- | --- | --- |
 | `node-version` | `22` | Accepts a matrix value from the caller. |
-| `setup-rust` | `false` | Installs `dtolnay/rust-toolchain@stable` and `Swatinem/rust-cache@v2` when true. |
+| `setup-rust` | `false` | Installs `dtolnay/rust-toolchain@stable` plus the cargo cache when true. |
 | `setup-python` | `false` | Installs Python via `actions/setup-python@v6` and `astral-sh/setup-uv@v6`. |
-| `python-version` / `python-version-file` | `3.13` / empty | Use the file form for repos that pin the version in `pyproject.toml`. |
-| `install-command` | _empty_ | Optional dependency bootstrap (runs in PowerShell, within `working-directory`). |
-| `pre-test-command`, `post-test-command` | _required_ | Commands that exercise the HTTPS client before/after trust. |
-| `pre-step-extra-env` | `{ "WIN_CA_EXPECT_SUCCESS": "0" }` | Injects extra env vars for the pre-trust run; parsed as JSON. |
-| `post-step-extra-env` | `{ "WIN_CA_EXPECT_SUCCESS": "1" }` | Same idea for the post-trust run. Override if your tests need different flags. |
-| `working-directory` | `.` | Directory that contains `scripts/win/create-local-ca.ps1` and your tests. |
-| `pfx-path`, `pfx-password` | `servercert.pfx`, `pass` | Customize if you want to stash certs elsewhere. |
+| `python-version` / `python-version-file` | `3.13` / empty | Pick one; the file form reads from `pyproject.toml`. |
+| `install-command` | _empty_ | Optional dependency bootstrap (runs inside PowerShell). |
+| `ensure-helper-scripts` | `true` | When true, downloads default helper scripts if they are missing. |
+| `helper-ca-relative-path` / `helper-server-relative-path` | defaults above | Override remote paths used when fetching helper scripts. |
+| `pre-test-command`, `post-test-command` | _required_ | Commands that must fail before trust and pass after. |
+| `pre-step-extra-env`, `post-step-extra-env` | JSON | Additional env vars applied to each test invocation. |
+| `working-directory` | `.` | Location of your scripts/tests relative to repo root. |
+| `ca-script-path`, `server-script` | `./scripts/win/create-local-ca.ps1`, `./scripts/https-server.mjs` | Override to reuse custom helpers. |
+| `pfx-path`, `pfx-password` | `servercert.pfx`, `pass` | File name and password handed to the PowerShell helper. |
+| `server-port`, `ready-timeout-seconds` | `4443`, `30` | Tune the HTTPS server health probe. |
+| `expected-pre-failure-message` | text | Error surfaced when the pre-trust command succeeds unexpectedly. |
+| `helper-repo` | `kittycad/gh-action-win-ca` | Repository hosting the default helper scripts. |
+| `helper-ref` | `main` | Git ref pulled from `helper-repo` when scripts are missing locally. |
 
-Every command step inherits `WIN_CA_SMOKE=1` and `NODE_EXTRA_CA_CERTS` pointing at the generated `root.pem`, so there is no need to wire those manually. You can still set additional `env:` keys on the calling job (e.g., `SMOKE_ATTEMPTS`) and they will propagate to both the pre- and post-trust runs.
+Every command step inherits `WIN_CA_SMOKE=1` and `NODE_EXTRA_CA_CERTS` pointing at the generated `root.pem`, so there is no need to wire those manually. You can still set extra `env:` keys on the calling job (for example `SMOKE_ATTEMPTS`) and they will propagate to both the pre- and post-trust runs.
 
 ## Expectations on the target repo
 
-- `scripts/win/create-local-ca.ps1` and `scripts/https-server.mjs` must exist relative to the repository root.
+- Helper scripts are downloaded automatically when missing, so vendoring `scripts/win/create-local-ca.ps1` and `scripts/https-server.mjs` is optional.
 - Tests should honor `WIN_CA_SMOKE=1` to guard Windows-only execution.
 - Anything written to disk during the run should live under the working directory so the cleanup step can delete `root.pem`, `root.cer`, and the generated PFX.
 
-That is everything: wire this workflow in and delete the duplicated YAML in each repo. The only variance left is the test command you want to run.
+## Repository self-test
+
+This repo runs `.github/workflows/win-ca-smoke-self-test.yml` on every push and pull request. The job calls the reusable workflow via `uses: ./.github/workflows/win-ca-smoke.yml` and uses the bundled scripts plus `scripts/Test-WinCA.ps1` to assert the pre-trust failure and post-trust success paths. If the reusable workflow regresses, the self-test will break before consumers feel the pain.

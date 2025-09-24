@@ -96,6 +96,31 @@ on:
         required: false
         default: ''
         type: string
+      ensure-helper-scripts:
+        description: Download helper scripts from this repository when they are missing.
+        required: false
+        default: true
+        type: boolean
+      helper-repo:
+        description: GitHub repository that hosts the helper scripts.
+        required: false
+        default: 'kittycad/gh-action-win-ca'
+        type: string
+      helper-ref:
+        description: Git reference within the helper repository.
+        required: false
+        default: 'main'
+        type: string
+      helper-ca-relative-path:
+        description: Path inside the helper repository to the CA PowerShell script.
+        required: false
+        default: 'scripts/win/create-local-ca.ps1'
+        type: string
+      helper-server-relative-path:
+        description: Path inside the helper repository to the HTTPS server script.
+        required: false
+        default: 'scripts/https-server.mjs'
+        type: string
       win-ca-flag:
         description: Value assigned to WIN_CA_SMOKE.
         required: false
@@ -143,6 +168,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Ensure helper scripts
+        if: ${{ inputs.ensure-helper-scripts }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Ensure-Helper([string]$LocalPath, [string]$RemotePath) {
+            if ([string]::IsNullOrWhiteSpace($LocalPath) -or [string]::IsNullOrWhiteSpace($RemotePath)) { return }
+            $full = Resolve-Path -LiteralPath $LocalPath -ErrorAction SilentlyContinue
+            if ($full) { return }
+            $directory = Split-Path -Parent $LocalPath
+            if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path $directory)) {
+              New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            }
+            $repo = '${{ inputs.helper-repo }}'
+            $ref = '${{ inputs.helper-ref }}'
+            $normalized = $RemotePath -replace '\\', '/'
+            $uri = "https://raw.githubusercontent.com/$repo/$ref/$normalized"
+            Write-Host "Downloading helper script from $uri to $LocalPath"
+            Invoke-WebRequest -Uri $uri -OutFile $LocalPath -UseBasicParsing
+          }
+          Ensure-Helper '${{ inputs.ca-script-path }}' '${{ inputs.helper-ca-relative-path }}'
+          Ensure-Helper '${{ inputs.server-script }}' '${{ inputs.helper-server-relative-path }}'
 
       - name: Setup Node
         uses: actions/setup-node@v4
