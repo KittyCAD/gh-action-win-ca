@@ -2,6 +2,10 @@ name: win-ca-smoke
 
 on:
   workflow_call:
+    secrets:
+      ZOO_TOKEN:
+        description: Optional token exposed to the smoke tests as ZOO_TOKEN.
+        required: false
     inputs:
       node-version:
         description: Version of Node.js to install.
@@ -165,6 +169,7 @@ jobs:
     env:
       WIN_CA_SMOKE: ${{ inputs.win-ca-flag }}
       NODE_EXTRA_CA_CERTS: ${{ inputs.node-extra-ca-certs != '' && inputs.node-extra-ca-certs || format('{0}\\root.pem', github.workspace) }}
+      ZOO_TOKEN: ${{ secrets.ZOO_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
