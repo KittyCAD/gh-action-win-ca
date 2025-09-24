@@ -258,8 +258,9 @@ jobs:
           $exitCode = 1
           try {
             $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
+            $serverPort = 4443
             do {
-              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port [int]$Env:SERVER_PORT -WarningAction SilentlyContinue -InformationLevel Quiet
+              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port $serverPort -WarningAction SilentlyContinue -InformationLevel Quiet
               if (-not $ready) { Start-Sleep -Milliseconds 200 }
             } while (-not $ready -and (Get-Date) -lt $deadline)
             if (-not $ready) { throw 'HTTPS server did not become ready in time' }
@@ -318,8 +319,9 @@ jobs:
           } -ArgumentList $serverScriptPath.ProviderPath, (Get-Location).Path
           try {
             $deadline = (Get-Date).AddSeconds([int]$Env:READY_TIMEOUT_SECONDS)
+            $serverPort = 4443
             do {
-              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port [int]$Env:SERVER_PORT -WarningAction SilentlyContinue -InformationLevel Quiet
+              $ready = Test-NetConnection -ComputerName 127.0.0.1 -Port $serverPort -WarningAction SilentlyContinue -InformationLevel Quiet
               if (-not $ready) { Start-Sleep -Milliseconds 200 }
             } while (-not $ready -and (Get-Date) -lt $deadline)
             if (-not $ready) { throw 'HTTPS server did not become ready in time' }

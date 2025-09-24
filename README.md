@@ -100,7 +100,7 @@ jobs:
 | `working-directory` | `.` | Location of your scripts/tests relative to repo root. |
 | `ca-script-path`, `server-script` | `./scripts/win/create-local-ca.ps1`, `./scripts/https-server.mjs` | Override to reuse custom helpers. |
 | `pfx-path`, `pfx-password` | `servercert.pfx`, `pass` | File name and password handed to the PowerShell helper. |
-| `server-port`, `ready-timeout-seconds` | `4443`, `30` | Tune the HTTPS server health probe. |
+| `ready-timeout-seconds` | `30` | Seconds to wait for the HTTPS server to become ready (port fixed at `4443`). |
 | `expected-pre-failure-message` | text | Error surfaced when the pre-trust command succeeds unexpectedly. |
 | `helper-repo` | `kittycad/gh-action-win-ca` | Repository hosting the default helper scripts. |
 | `helper-ref` | `main` | Git ref pulled from `helper-repo` when scripts are missing locally. |
