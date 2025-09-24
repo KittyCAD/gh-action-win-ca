@@ -20,9 +20,24 @@ if (!fs.existsSync(pfxPath)) {
 
 const pfx = fs.readFileSync(pfxPath)
 
+const sendJson = (res, statusCode, payload) => {
+  const body = JSON.stringify(payload)
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+  })
+  res.end(body)
+}
+
 const server = https.createServer({ pfx, passphrase }, (req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' })
-  res.end('ok')
+  if (req.method === 'GET' && req.url === '/') {
+    sendJson(res, 200, { status: 'ok' })
+    return
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify({ error: 'not_found' }))
 })
 
 server.on('error', (err) => {
