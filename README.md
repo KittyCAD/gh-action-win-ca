@@ -107,7 +107,7 @@ jobs:
 
 ## Optional secret
 
-Map `ZOO_TOKEN` when calling the workflow to hand a token to your smoke tests. The value is injected into every step as the `ZOO_TOKEN` environment variable.
+Map `ZOO_API_TOKEN` when calling the workflow to hand a token to your smoke tests. The value is injected into every step as the `ZOO_API_TOKEN` environment variable.
 
 Every command step inherits `WIN_CA_SMOKE=1` and `NODE_EXTRA_CA_CERTS` pointing at the generated `root.pem`, so there is no need to wire those manually. You can still set extra `env:` keys on the calling job (for example `SMOKE_ATTEMPTS`) and they will propagate to both the pre- and post-trust runs.
 
